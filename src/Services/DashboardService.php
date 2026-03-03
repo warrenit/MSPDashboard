@@ -47,8 +47,8 @@ final class DashboardService
                 'slaOverdueCount' => 0,
                 'projectOpenCount' => 0,
                 'dattoOpenAlertsCount' => 0,
-                'kumaDownCount' => 0,
-                'kumaFlapCount' => 0,
+                'oldestOpenTicketAgeSeconds' => null,
+                'avgFirstResponseMinutesToday' => null,
             ],
             'health' => [
                 'state' => 'green',

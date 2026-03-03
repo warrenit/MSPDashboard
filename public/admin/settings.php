@@ -158,10 +158,38 @@ function val(SettingsRepo $settings, string $key, string $default = ''): string
     return (string) $settings->get($key, $default);
 }
 
+function listCount(string $raw): int
+{
+    $parts = array_filter(array_map('trim', preg_split('/[\r\n,]+/', $raw) ?: []));
+    return count($parts);
+}
+
 function sectionLink(string $section, string $activeSection): string
 {
     return $section === $activeSection ? 'section-link active' : 'section-link';
 }
+
+$rssFeedCount = listCount(val($settings, 'rss_feed_urls'));
+$rssEnabled = val($settings, 'rss_enabled', '0') === '1';
+
+$agentCount = listCount(val($settings, 'agent_names', ''));
+
+$thresholdKeys = [
+    'health_threshold_unassigned',
+    'health_threshold_important_alerts',
+    'health_threshold_sla_overdue',
+    'health_threshold_sla_due_soon',
+    'health_threshold_customer_responded',
+    'health_threshold_kuma_down',
+];
+$thresholdSetCount = 0;
+foreach ($thresholdKeys as $thresholdKey) {
+    if (trim(val($settings, $thresholdKey, '')) !== '') {
+        $thresholdSetCount++;
+    }
+}
+
+$haloConfigured = trim(val($settings, 'halo_client_id', '')) !== '' && trim(val($settings, 'halo_client_secret', '')) !== '';
 ?><!doctype html>
 <html><head><meta charset="utf-8"><title>Admin Settings</title><link rel="stylesheet" href="/assets/dashboard.css"></head>
 <body>
@@ -174,11 +202,11 @@ function sectionLink(string $section, string $activeSection): string
         <nav class="settings-nav">
             <a class="<?= sectionLink('general', $section) ?>" href="?section=general">General</a>
             <a class="<?= sectionLink('logo', $section) ?>" href="?section=logo">Logo</a>
-            <a class="<?= sectionLink('rss', $section) ?>" href="?section=rss">RSS</a>
-            <a class="<?= sectionLink('thresholds', $section) ?>" href="?section=thresholds">Thresholds</a>
-            <a class="<?= sectionLink('agents', $section) ?>" href="?section=agents">Agents</a>
+            <a class="<?= sectionLink('rss', $section) ?>" href="?section=rss">RSS <span class="section-badge"><?= $rssFeedCount ?> • <?= $rssEnabled ? 'on' : 'off' ?></span></a>
+            <a class="<?= sectionLink('thresholds', $section) ?>" href="?section=thresholds">Thresholds <span class="section-badge"><?= $thresholdSetCount ?>/6</span></a>
+            <a class="<?= sectionLink('agents', $section) ?>" href="?section=agents">Agents <span class="section-badge"><?= $agentCount ?></span></a>
             <a class="<?= sectionLink('mappings', $section) ?>" href="?section=mappings">Mappings</a>
-            <a class="<?= sectionLink('halo', $section) ?>" href="?section=halo">Halo</a>
+            <a class="<?= sectionLink('halo', $section) ?>" href="?section=halo">Halo <span class="section-badge"><?= $haloConfigured ? 'configured' : 'not configured' ?></span></a>
         </nav>
 
         <section class="settings-panel">

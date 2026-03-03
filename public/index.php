@@ -83,17 +83,17 @@ try {
 
     <section class="tiles-grid">
         <article class="tile"><h2>Unassigned (combined)</h2><div id="unassignedCount" class="tile-value">0</div></article>
-        <article class="tile"><h2>Important Alerts</h2><div id="importantAlertsCount" class="tile-value">0</div></article>
+        <article class="tile tile-accent-amber"><h2>Important Alerts</h2><div id="importantAlertsCount" class="tile-value">0</div></article>
         <article class="tile"><h2>Total Open</h2><div id="totalOpenCount" class="tile-value">0</div></article>
         <article class="tile"><h2>Waiting on Customer</h2><div id="waitingOnCustomerCount" class="tile-value">0</div></article>
-        <article class="tile"><h2>Customer Responded</h2><div id="customerRespondedCount" class="tile-value">0</div></article>
-        <article class="tile"><h2>SLA Due Soon</h2><div id="slaDueSoonCount" class="tile-value">0</div></article>
-        <article class="tile"><h2>SLA Overdue</h2><div id="slaOverdueCount" class="tile-value">0</div></article>
+        <article class="tile tile-accent-blue"><h2>Customer Responded</h2><div id="customerRespondedCount" class="tile-value">0</div></article>
+        <article class="tile tile-accent-amber"><h2>SLA Due Soon</h2><div id="slaDueSoonCount" class="tile-value">0</div></article>
+        <article class="tile tile-accent-red"><h2>SLA Overdue</h2><div id="slaOverdueCount" class="tile-value">0</div></article>
         <article class="tile"><h2>Project Tickets Open</h2><div id="projectOpenCount" class="tile-value">0</div></article>
         <article class="tile"><h2>Datto Open Alerts</h2><div id="dattoOpenAlertsCount" class="tile-value">0</div></article>
-        <article class="tile"><h2>Kuma Down</h2><div id="kumaDownCount" class="tile-value">0</div></article>
-        <article class="tile"><h2>Kuma Flapped</h2><div id="kumaFlapCount" class="tile-value">0</div></article>
-        <article class="tile"><h2>Helpdesk Health</h2><div id="healthState" class="tile-value state-green">GREEN</div></article>
+        <article class="tile"><h2>Oldest Open Ticket</h2><div id="oldestOpenTicketAge" class="tile-value">—</div></article>
+        <article class="tile"><h2>Avg First Response (Today)</h2><div id="avgFirstResponseToday" class="tile-value">—</div></article>
+        <article class="tile health-tile"><h2>Helpdesk Health</h2><div id="healthState" class="tile-value health-state state-green">GREEN</div><div id="healthSummary" class="health-summary">Waiting for Halo configuration</div></article>
     </section>
 
     <section class="charts-grid">
@@ -207,6 +207,24 @@ try {
         return h + 'h ' + m + 'm ' + sec + 's';
     }
 
+    function formatTicketAge(seconds) {
+        if (seconds === null || seconds === undefined || Number.isNaN(Number(seconds))) {
+            return '—';
+        }
+        const total = Math.max(0, Number(seconds));
+        const d = Math.floor(total / 86400);
+        const h = Math.floor((total % 86400) / 3600);
+        const m = Math.floor((total % 3600) / 60);
+        return d + 'd ' + h + 'h ' + m + 'm';
+    }
+
+    function formatAvgFirstResponse(minutes) {
+        if (minutes === null || minutes === undefined || Number.isNaN(Number(minutes))) {
+            return '—';
+        }
+        return Math.round(Number(minutes)) + ' min';
+    }
+
     function renderExceptions(rows) {
         const list = document.getElementById('exceptionsList');
         list.innerHTML = '';
@@ -224,12 +242,24 @@ try {
         });
     }
 
-    function renderHealth(health) {
+    function renderHealth(health, tiles) {
         const el = document.getElementById('healthState');
+        const summary = document.getElementById('healthSummary');
         const state = (health && health.state ? health.state : 'green').toLowerCase();
         el.textContent = state.toUpperCase();
         el.classList.remove('state-green', 'state-amber', 'state-red', 'state-grey');
         el.classList.add('state-' + (['green', 'amber', 'red'].includes(state) ? state : 'grey'));
+
+        const overdue = tiles ? tiles.slaOverdueCount : null;
+        const dueSoon = tiles ? tiles.slaDueSoonCount : null;
+        const responded = tiles ? tiles.customerRespondedCount : null;
+
+        if (overdue === null || overdue === undefined || dueSoon === null || dueSoon === undefined || responded === null || responded === undefined) {
+            summary.textContent = 'Waiting for Halo configuration';
+            return;
+        }
+
+        summary.textContent = 'Overdue: ' + overdue + ' • Due soon: ' + dueSoon + ' • Customer responded: ' + responded;
     }
 
     function renderRss(payload) {
@@ -273,10 +303,10 @@ try {
             setText('slaOverdueCount', t.slaOverdueCount ?? 0);
             setText('projectOpenCount', t.projectOpenCount ?? 0);
             setText('dattoOpenAlertsCount', t.dattoOpenAlertsCount ?? 0);
-            setText('kumaDownCount', t.kumaDownCount ?? 0);
-            setText('kumaFlapCount', t.kumaFlapCount ?? 0);
+            setText('oldestOpenTicketAge', formatTicketAge(t.oldestOpenTicketAgeSeconds));
+            setText('avgFirstResponseToday', formatAvgFirstResponse(t.avgFirstResponseMinutesToday));
 
-            renderHealth(data.health || {state: 'grey'});
+            renderHealth(data.health || {state: 'grey'}, t);
             renderBars('closedChart', data.charts && data.charts.closedThisWeekByAgent ? data.charts.closedThisWeekByAgent : []);
             renderBars('openChart', data.charts && data.charts.openByAgent ? data.charts.openByAgent : []);
             renderExceptions(data.exceptions && data.exceptions.kumaDown ? data.exceptions.kumaDown : []);
