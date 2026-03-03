@@ -14,7 +14,6 @@ $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH) ?: '/';
 InstallGate::enforce($path);
 
 $config = Config::load();
-$settingsRepo = null;
 $refreshInterval = 10;
 $rssEnabled = false;
 $logoMode = 'url';
@@ -51,11 +50,11 @@ try {
     <link rel="stylesheet" href="/assets/dashboard.css">
 </head>
 <body data-refresh-interval="<?= $refreshInterval ?>" data-rss-enabled="<?= $rssEnabled ? '1' : '0' ?>">
-<div class="dashboard-wrap">
+<div class="dashboard-wrap compact-dashboard">
     <header class="header-row">
         <div class="logo-box">
             <?php if ($resolvedLogoSrc !== ''): ?>
-                <img src="<?= htmlspecialchars($resolvedLogoSrc, ENT_QUOTES, 'UTF-8') ?>" alt="Dashboard logo" style="max-width:100%;max-height:84px;object-fit:contain;">
+                <img src="<?= htmlspecialchars($resolvedLogoSrc, ENT_QUOTES, 'UTF-8') ?>" alt="Dashboard logo" style="max-width:100%;max-height:72px;object-fit:contain;">
             <?php else: ?>
                 LOGO
             <?php endif; ?>
@@ -68,14 +67,18 @@ try {
             <div id="clockDay"></div>
             <div id="clockDate"></div>
             <div id="clockTime"></div>
+            <div id="clockGreeting" class="clock-greeting">Good Morning</div>
         </div>
     </header>
 
-    <section class="status-strip" id="apiStatusStrip"></section>
-
     <section class="rss-row" id="rssRow" style="display:none;">
         <div class="rss-label">RSS</div>
-        <div class="rss-ticker" id="rssTicker">No headlines.</div>
+        <div class="rss-ticker" id="rssTicker">
+            <div class="rss-track" id="rssTrack">
+                <span class="rss-segment" id="rssSegmentA">No headlines</span>
+                <span class="rss-segment" id="rssSegmentB" aria-hidden="true">No headlines</span>
+            </div>
+        </div>
     </section>
 
     <section class="tiles-grid">
@@ -104,25 +107,23 @@ try {
         </div>
     </section>
 
-    <section class="panel">
+    <section class="panel exceptions-panel">
         <h2>Exceptions: Kuma down list</h2>
         <ul id="exceptionsList" class="exceptions"></ul>
     </section>
 </div>
+
+<footer class="status-footer">
+    <section class="status-strip slim" id="apiStatusStrip"></section>
+</footer>
 
 <script>
 (function () {
     const refreshInterval = parseInt(document.body.dataset.refreshInterval || '10', 10) * 1000;
     const rssEnabledBySetting = document.body.dataset.rssEnabled === '1';
     const ukDateTimeFormatter = new Intl.DateTimeFormat('en-GB', {
-        weekday: 'short',
-        day: 'numeric',
-        month: 'short',
-        year: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
+        weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
     });
     const ukDayFormatter = new Intl.DateTimeFormat('en-GB', { weekday: 'long' });
     const ukDateFormatter = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -130,10 +131,14 @@ try {
 
     function formatUkDateTime(value) {
         const d = value ? new Date(value) : new Date();
-        if (Number.isNaN(d.getTime())) {
-            return '--';
-        }
+        if (Number.isNaN(d.getTime())) return '--';
         return ukDateTimeFormatter.format(d).replace(',', '');
+    }
+
+    function greetingForHour(hour) {
+        if (hour >= 0 && hour <= 11) return 'Good Morning';
+        if (hour >= 12 && hour <= 17) return 'Good Afternoon';
+        return 'Good Evening';
     }
 
     function updateClock() {
@@ -141,6 +146,7 @@ try {
         document.getElementById('clockDay').textContent = ukDayFormatter.format(now);
         document.getElementById('clockDate').textContent = ukDateFormatter.format(now);
         document.getElementById('clockTime').textContent = ukTimeFormatter.format(now);
+        document.getElementById('clockGreeting').textContent = greetingForHour(now.getHours());
     }
 
     function statusClass(state) {
@@ -228,12 +234,26 @@ try {
 
     function renderRss(payload) {
         const row = document.getElementById('rssRow');
-        const ticker = document.getElementById('rssTicker');
+        const track = document.getElementById('rssTrack');
+        const segmentA = document.getElementById('rssSegmentA');
+        const segmentB = document.getElementById('rssSegmentB');
+
         const enabled = rssEnabledBySetting && payload.rssTicker && payload.rssTicker.enabled;
         row.style.display = enabled ? 'grid' : 'none';
-        if (!enabled) return;
-        const items = Array.isArray(payload.rssTicker.items) ? payload.rssTicker.items : [];
-        ticker.textContent = items.length ? items.map(item => item.title).join('  •  ') : 'No headlines.';
+
+        const items = enabled && Array.isArray(payload.rssTicker.items) ? payload.rssTicker.items : [];
+        if (!enabled || items.length === 0) {
+            const noHeadlines = 'No headlines';
+            segmentA.textContent = noHeadlines;
+            segmentB.textContent = noHeadlines;
+            track.classList.remove('scrolling');
+            return;
+        }
+
+        const text = items.map(item => item.title).join('   •   ');
+        segmentA.textContent = text + '   •   ';
+        segmentB.textContent = text + '   •   ';
+        track.classList.add('scrolling');
     }
 
     async function loadDashboard() {
