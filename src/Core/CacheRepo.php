@@ -26,4 +26,28 @@ final class CacheRepo
             'last_error' => $lastError,
         ]);
     }
+
+    public function get(string $source): ?array
+    {
+        $stmt = $this->pdo->prepare('SELECT source_name, payload_json, status, last_error, updated_at FROM source_cache WHERE source_name = :source_name LIMIT 1');
+        $stmt->execute(['source_name' => $source]);
+        $row = $stmt->fetch();
+
+        if (!$row) {
+            return null;
+        }
+
+        $payload = json_decode((string) $row['payload_json'], true);
+        if (!is_array($payload)) {
+            $payload = [];
+        }
+
+        return [
+            'source_name' => (string) $row['source_name'],
+            'payload' => $payload,
+            'status' => (string) $row['status'],
+            'last_error' => $row['last_error'] !== null ? (string) $row['last_error'] : null,
+            'updated_at' => (string) $row['updated_at'],
+        ];
+    }
 }

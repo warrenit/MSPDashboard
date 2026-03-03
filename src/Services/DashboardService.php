@@ -8,8 +8,10 @@ use App\Core\SettingsRepo;
 
 final class DashboardService
 {
-    public function __construct(private readonly SettingsRepo $settings)
-    {
+    public function __construct(
+        private readonly SettingsRepo $settings,
+        private readonly RssService $rssService
+    ) {
     }
 
     public function payload(): array
@@ -26,14 +28,14 @@ final class DashboardService
             $closedByAgent[] = ['agent' => $name, 'count' => 0];
         }
 
-        $rssEnabled = ((string) $this->settings->get('rss_enabled', '0')) === '1';
+        $rss = $this->rssService->getTickerData();
 
         return [
             'apiStatus' => [
                 'halo' => ['state' => 'grey', 'message' => 'Not configured', 'updatedAt' => null],
                 'datto' => ['state' => 'grey', 'message' => 'Not configured', 'updatedAt' => null],
                 'kuma' => ['state' => 'grey', 'message' => 'Not configured', 'updatedAt' => null],
-                'rss' => ['state' => 'grey', 'message' => $rssEnabled ? 'Enabled (not configured)' : 'Disabled', 'updatedAt' => null],
+                'rss' => $rss['status'],
             ],
             'tiles' => [
                 'unassignedCount' => 0,
@@ -61,10 +63,7 @@ final class DashboardService
                     ['name' => 'Service', 'durationSeconds' => 0],
                 ],
             ],
-            'rssTicker' => [
-                'enabled' => $rssEnabled,
-                'items' => [],
-            ],
+            'rssTicker' => $rss['ticker'],
             'updatedAt' => [
                 'overall' => gmdate('c'),
             ],

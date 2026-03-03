@@ -30,3 +30,4 @@ require_once $rootPath . '/src/Core/Auth.php';
 require_once $rootPath . '/src/Services/MigrationService.php';
 require_once $rootPath . '/src/Services/HaloClient.php';
 require_once $rootPath . '/src/Services/DashboardService.php';
+require_once $rootPath . '/src/Services/RssService.php';

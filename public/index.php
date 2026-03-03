@@ -17,6 +17,10 @@ $config = Config::load();
 $settingsRepo = null;
 $refreshInterval = 10;
 $rssEnabled = false;
+$logoMode = 'url';
+$logoUrl = '';
+$logoUploadPath = '';
+$resolvedLogoSrc = '';
 
 try {
     $pdo = Database::connect($config);
@@ -24,6 +28,15 @@ try {
     IpAllowlist::enforce($settingsRepo, $path);
     $refreshInterval = max(10, (int) $settingsRepo->get('refresh_interval_sec', '10'));
     $rssEnabled = ((string) $settingsRepo->get('rss_enabled', '0')) === '1';
+    $logoMode = (string) $settingsRepo->get('logo_mode', 'url');
+    $logoUrl = trim((string) $settingsRepo->get('logo_url', ''));
+    $logoUploadPath = trim((string) $settingsRepo->get('logo_upload_path', ''));
+
+    if ($logoMode === 'upload' && $logoUploadPath !== '') {
+        $resolvedLogoSrc = $logoUploadPath;
+    } elseif ($logoUrl !== '') {
+        $resolvedLogoSrc = $logoUrl;
+    }
 } catch (Throwable $e) {
     http_response_code(500);
     echo 'Configuration error.';
@@ -40,7 +53,13 @@ try {
 <body data-refresh-interval="<?= $refreshInterval ?>" data-rss-enabled="<?= $rssEnabled ? '1' : '0' ?>">
 <div class="dashboard-wrap">
     <header class="header-row">
-        <div class="logo-box">LOGO</div>
+        <div class="logo-box">
+            <?php if ($resolvedLogoSrc !== ''): ?>
+                <img src="<?= htmlspecialchars($resolvedLogoSrc, ENT_QUOTES, 'UTF-8') ?>" alt="Dashboard logo" style="max-width:100%;max-height:84px;object-fit:contain;">
+            <?php else: ?>
+                LOGO
+            <?php endif; ?>
+        </div>
         <div class="title-box">
             <h1>Helpdesk Dashboard</h1>
             <div id="lastUpdated">Last updated: --</div>
@@ -95,12 +114,33 @@ try {
 (function () {
     const refreshInterval = parseInt(document.body.dataset.refreshInterval || '10', 10) * 1000;
     const rssEnabledBySetting = document.body.dataset.rssEnabled === '1';
+    const ukDateTimeFormatter = new Intl.DateTimeFormat('en-GB', {
+        weekday: 'short',
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    });
+    const ukDayFormatter = new Intl.DateTimeFormat('en-GB', { weekday: 'long' });
+    const ukDateFormatter = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+    const ukTimeFormatter = new Intl.DateTimeFormat('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+
+    function formatUkDateTime(value) {
+        const d = value ? new Date(value) : new Date();
+        if (Number.isNaN(d.getTime())) {
+            return '--';
+        }
+        return ukDateTimeFormatter.format(d).replace(',', '');
+    }
 
     function updateClock() {
         const now = new Date();
-        document.getElementById('clockDay').textContent = now.toLocaleDateString(undefined, { weekday: 'long' });
-        document.getElementById('clockDate').textContent = now.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
-        document.getElementById('clockTime').textContent = now.toLocaleTimeString();
+        document.getElementById('clockDay').textContent = ukDayFormatter.format(now);
+        document.getElementById('clockDate').textContent = ukDateFormatter.format(now);
+        document.getElementById('clockTime').textContent = ukTimeFormatter.format(now);
     }
 
     function statusClass(state) {
@@ -193,7 +233,7 @@ try {
         row.style.display = enabled ? 'grid' : 'none';
         if (!enabled) return;
         const items = Array.isArray(payload.rssTicker.items) ? payload.rssTicker.items : [];
-        ticker.textContent = items.length ? items.join('  •  ') : 'No headlines.';
+        ticker.textContent = items.length ? items.map(item => item.title).join('  •  ') : 'No headlines.';
     }
 
     async function loadDashboard() {
@@ -222,8 +262,8 @@ try {
             renderExceptions(data.exceptions && data.exceptions.kumaDown ? data.exceptions.kumaDown : []);
             renderRss(data);
 
-            const updated = data.updatedAt && data.updatedAt.overall ? data.updatedAt.overall : '--';
-            document.getElementById('lastUpdated').textContent = 'Last updated: ' + updated;
+            const updatedIso = data.updatedAt && data.updatedAt.overall ? data.updatedAt.overall : null;
+            document.getElementById('lastUpdated').textContent = 'Last updated: ' + formatUkDateTime(updatedIso);
         } catch (err) {
             renderApiStatus({
                 halo: {state: 'red', message: 'API error'},

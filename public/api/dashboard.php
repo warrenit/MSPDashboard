@@ -4,12 +4,14 @@ declare(strict_types=1);
 
 require_once dirname(__DIR__, 2) . '/src/bootstrap.php';
 
+use App\Core\CacheRepo;
 use App\Core\Config;
 use App\Core\Database;
 use App\Core\InstallGate;
 use App\Core\IpAllowlist;
 use App\Core\SettingsRepo;
 use App\Services\DashboardService;
+use App\Services\RssService;
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/api/dashboard.php', PHP_URL_PATH) ?: '/api/dashboard.php';
 InstallGate::enforce($path);
@@ -22,7 +24,9 @@ try {
     $settings = new SettingsRepo($pdo);
     IpAllowlist::enforce($settings, $path);
 
-    $service = new DashboardService($settings);
+    $cacheRepo = new CacheRepo($pdo);
+    $rssService = new RssService($settings, $cacheRepo);
+    $service = new DashboardService($settings, $rssService);
     echo json_encode($service->payload(), JSON_THROW_ON_ERROR);
 } catch (Throwable $e) {
     http_response_code(500);
