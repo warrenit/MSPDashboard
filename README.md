@@ -1,11 +1,11 @@
-# MSPDashboard (Phase 1)
+# MSPDashboard (Phase 2)
 
 Clean build for a cPanel-hosted helpdesk dashboard.
 
 ## Stack
 - PHP 8.x
 - MySQL
-- Vanilla JS frontend (Phase 1 only includes plumbing)
+- Vanilla JS frontend (polling `/api/dashboard.php` without full page reload)
 
 ## cPanel deployment (subdomain)
 1. Create subdomain in cPanel.
@@ -30,7 +30,18 @@ Clean build for a cPanel-hosted helpdesk dashboard.
    - Optional IP allowlist + intervals
    - Finish (writes `_config/app.key` and `_config/installed.lock`)
 3. Login at `/admin/login.php`.
-4. Manage Phase 1 settings at `/admin/settings.php`.
+4. Configure settings at `/admin/settings.php`.
+
+## Phase 2 features
+- TV-friendly dashboard at `/` with:
+  - header (logo placeholder, date/time, last updated)
+  - API status strip (Halo/Datto/Kuma/RSS)
+  - optional RSS ticker row
+  - 12 tiles including Helpdesk Health
+  - two CSS/HTML bar charts (no JS chart library)
+  - Kuma exceptions list panel
+- Frontend polling interval uses `refresh_interval_sec` setting.
+- `/api/dashboard.php` returns complete schema with mock/default data until integrations are added.
 
 ## Re-run installer
 Delete:
