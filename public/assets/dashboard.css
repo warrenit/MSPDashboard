@@ -111,7 +111,7 @@ body { line-height: 1.25; }
 }
 
 .rss-track.scrolling {
-    animation: ticker-scroll 32s linear infinite;
+    animation: ticker-scroll 150s linear infinite;
     will-change: transform;
 }
 
@@ -130,10 +130,11 @@ body { line-height: 1.25; }
 }
 
 .tile {
-    min-height: 118px;
-    padding: 9px 10px;
-    display: grid;
-    align-content: space-between;
+    min-height: 0;
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-start;
     gap: 6px;
 }
 
