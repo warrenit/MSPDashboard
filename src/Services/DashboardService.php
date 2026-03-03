@@ -61,7 +61,24 @@ final class DashboardService
             $charts = array_merge($charts, $halo['data']['charts']);
         }
 
-        return [
+        $debug = null;
+        if (isset($halo['data']['ticketProjection']) && is_array($halo['data']['ticketProjection'])) {
+            $mapped = $this->applyMappedCounts($tiles, $halo['data']['ticketProjection']);
+            $tiles = $mapped['tiles'];
+
+            if ($mapped['mappingMissing']) {
+                if (in_array($halo['status']['state'] ?? 'grey', ['green', 'amber'], true)) {
+                    $halo['status']['state'] = 'amber';
+                    $halo['status']['message'] = 'Missing open/status mappings';
+                }
+            }
+
+            if (isset($_GET['admin_debug']) && $_GET['admin_debug'] === '1') {
+                $debug = $mapped['debug'];
+            }
+        }
+
+        $payload = [
             'apiStatus' => [
                 'halo' => $halo['status'],
                 'datto' => ['state' => 'grey', 'message' => 'Not configured', 'updatedAt' => null],
@@ -84,6 +101,12 @@ final class DashboardService
                 'overall' => gmdate('c'),
             ],
         ];
+
+        if ($debug !== null) {
+            $payload['debug'] = $debug;
+        }
+
+        return $payload;
     }
 
     private function resolveHaloData(): array
@@ -143,9 +166,115 @@ final class DashboardService
         ];
     }
 
+    private function applyMappedCounts(array $tiles, array $ticketProjection): array
+    {
+        $scopeTypeIds = $this->parseIntList((string) $this->settings->get('scope_tickettype_ids', ''));
+        $openStatusIds = $this->parseIntList((string) $this->settings->get('open_status_ids', ''));
+        $importantTypeIds = $this->parseIntList((string) $this->settings->get('important_tickettype_ids', ''));
+
+        $mappingMissing = $scopeTypeIds === [] || $openStatusIds === [];
+        if ($mappingMissing) {
+            $tiles['totalOpenCount'] = 0;
+            $tiles['unassignedCount'] = 0;
+            $tiles['importantAlertsCount'] = 0;
+
+            return [
+                'tiles' => $tiles,
+                'mappingMissing' => true,
+                'debug' => [
+                    'agentAssignedBucket' => ['agent_id_0' => 0, 'agent_id_gt0' => 0],
+                    'sampleUnassigned' => [],
+                    'sampleAssigned' => [],
+                ],
+            ];
+        }
+
+        $scopeTypeLookup = array_fill_keys($scopeTypeIds, true);
+        $openStatusLookup = array_fill_keys($openStatusIds, true);
+        $importantTypeLookup = array_fill_keys($importantTypeIds, true);
+
+        $totalOpen = 0;
+        $unassigned = 0;
+        $important = 0;
+
+        $bucket0 = 0;
+        $bucketGt0 = 0;
+        $sampleUnassigned = [];
+        $sampleAssigned = [];
+
+        foreach ($ticketProjection as $ticket) {
+            if (!is_array($ticket)) {
+                continue;
+            }
+
+            $statusId = $this->toInt($ticket['status_id'] ?? null);
+            $ticketTypeId = $this->toInt($ticket['tickettype_id'] ?? null);
+            $agentId = $this->toInt($ticket['agent_id'] ?? null);
+            $ticketId = $this->toInt($ticket['id'] ?? null);
+
+            if ($statusId === null || $ticketTypeId === null || !isset($openStatusLookup[$statusId]) || !isset($scopeTypeLookup[$ticketTypeId])) {
+                continue;
+            }
+
+            $totalOpen++;
+            if ($agentId === 0) {
+                $unassigned++;
+                $bucket0++;
+                if ($ticketId !== null && count($sampleUnassigned) < 5) {
+                    $sampleUnassigned[] = $ticketId;
+                }
+
+                if ($importantTypeLookup !== [] && isset($importantTypeLookup[$ticketTypeId])) {
+                    $important++;
+                }
+            } elseif ($agentId !== null && $agentId > 0) {
+                $bucketGt0++;
+                if ($ticketId !== null && count($sampleAssigned) < 5) {
+                    $sampleAssigned[] = $ticketId;
+                }
+            }
+        }
+
+        $tiles['totalOpenCount'] = $totalOpen;
+        $tiles['unassignedCount'] = $unassigned;
+        $tiles['importantAlertsCount'] = $important;
+
+        return [
+            'tiles' => $tiles,
+            'mappingMissing' => false,
+            'debug' => [
+                'agentAssignedBucket' => ['agent_id_0' => $bucket0, 'agent_id_gt0' => $bucketGt0],
+                'sampleUnassigned' => $sampleUnassigned,
+                'sampleAssigned' => $sampleAssigned,
+            ],
+        ];
+    }
+
     private function parseList(string $value): array
     {
         return array_values(array_filter(array_map('trim', preg_split('/[\r\n,]+/', $value) ?: [])));
+    }
+
+    private function parseIntList(string $value): array
+    {
+        $out = [];
+        foreach ($this->parseList($value) as $item) {
+            if (is_numeric($item)) {
+                $out[] = (int) $item;
+            }
+        }
+        return array_values(array_unique($out));
+    }
+
+    private function toInt(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+        return null;
     }
 
     private function safeError(string $message): string

@@ -139,6 +139,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $settings->set('status_open_or_closed_exclusions', trim((string) ($_POST['status_open_or_closed_exclusions'] ?? '')));
             $settings->set('project_type_list', trim((string) ($_POST['project_type_list'] ?? 'project')));
             $settings->set('sla_due_soon_minutes', (string) max(10, (int) ($_POST['sla_due_soon_minutes'] ?? 120)));
+            $settings->set('scope_tickettype_ids', trim((string) ($_POST['scope_tickettype_ids'] ?? '')));
+            $settings->set('open_status_ids', trim((string) ($_POST['open_status_ids'] ?? '')));
+            $settings->set('important_tickettype_ids', trim((string) ($_POST['important_tickettype_ids'] ?? '')));
         }
 
         if ($postSection === 'halo') {
@@ -294,6 +297,15 @@ $haloConfigured = trim(val($settings, 'halo_client_id', '')) !== '' && trim(val(
                     </label>
                     <label>Open/Closed exclusion statuses (comma or newline separated)
                         <textarea name="status_open_or_closed_exclusions" rows="4"><?= htmlspecialchars(val($settings, 'status_open_or_closed_exclusions'), ENT_QUOTES, 'UTF-8') ?></textarea>
+                    </label>
+                    <label>Scope tickettype IDs (CSV, for Total Open/Unassigned)
+                        <input type="text" name="scope_tickettype_ids" value="<?= htmlspecialchars(val($settings, 'scope_tickettype_ids', ''), ENT_QUOTES, 'UTF-8') ?>" placeholder="1,2,3">
+                    </label>
+                    <label>Open status IDs (CSV, for Total Open/Unassigned)
+                        <input type="text" name="open_status_ids" value="<?= htmlspecialchars(val($settings, 'open_status_ids', ''), ENT_QUOTES, 'UTF-8') ?>" placeholder="10,11,12">
+                    </label>
+                    <label>Important tickettype IDs (CSV, unassigned alerts)
+                        <input type="text" name="important_tickettype_ids" value="<?= htmlspecialchars(val($settings, 'important_tickettype_ids', ''), ENT_QUOTES, 'UTF-8') ?>" placeholder="20,21">
                     </label>
                     <label>Project type list (comma/newline, default includes project)
                         <textarea name="project_type_list" rows="3"><?= htmlspecialchars(val($settings, 'project_type_list', 'project'), ENT_QUOTES, 'UTF-8') ?></textarea>

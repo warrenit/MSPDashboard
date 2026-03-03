@@ -396,6 +396,7 @@ final class HaloClient
                 'openByAgent' => $this->mapChart($openByAgent),
                 'closedThisWeekByAgent' => $this->mapChart($closedByAgent),
             ],
+            'ticketProjection' => $this->ticketProjection($tickets),
         ];
     }
 
@@ -418,7 +419,44 @@ final class HaloClient
                 'openByAgent' => [],
                 'closedThisWeekByAgent' => [],
             ],
+            'ticketProjection' => [],
         ];
+    }
+
+
+    private function ticketProjection(array $tickets): array
+    {
+        $out = [];
+        foreach ($tickets as $ticket) {
+            if (!is_array($ticket)) {
+                continue;
+            }
+
+            $id = $this->toIntOrNull($ticket['id'] ?? null);
+            $statusId = $this->toIntOrNull($ticket['status_id'] ?? $ticket['statusid'] ?? null);
+            $ticketTypeId = $this->toIntOrNull($ticket['tickettype_id'] ?? $ticket['tickettypeid'] ?? null);
+            $agentId = $this->toIntOrNull($ticket['agent_id'] ?? $ticket['agentid'] ?? $ticket['assigned_agent_id'] ?? null);
+
+            $out[] = [
+                'id' => $id,
+                'status_id' => $statusId,
+                'tickettype_id' => $ticketTypeId,
+                'agent_id' => $agentId,
+            ];
+        }
+
+        return $out;
+    }
+
+    private function toIntOrNull(mixed $value): ?int
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+        if (is_numeric($value)) {
+            return (int) $value;
+        }
+        return null;
     }
 
     private function mapChart(array $series): array
