@@ -369,3 +369,10 @@ button:hover { filter: brightness(1.08); }
     .dashboard-wrap { padding: 8px 8px 62px; }
     .tiles-grid, .status-strip.slim, .settings-nav { grid-template-columns: 1fr; }
 }
+
+
+.button-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}

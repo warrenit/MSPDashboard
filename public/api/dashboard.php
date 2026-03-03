@@ -11,6 +11,7 @@ use App\Core\InstallGate;
 use App\Core\IpAllowlist;
 use App\Core\SettingsRepo;
 use App\Services\DashboardService;
+use App\Services\HaloClient;
 use App\Services\RssService;
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/api/dashboard.php', PHP_URL_PATH) ?: '/api/dashboard.php';
@@ -26,7 +27,8 @@ try {
 
     $cacheRepo = new CacheRepo($pdo);
     $rssService = new RssService($settings, $cacheRepo);
-    $service = new DashboardService($settings, $rssService);
+    $haloClient = new HaloClient($settings, $cacheRepo);
+    $service = new DashboardService($settings, $rssService, $haloClient, $cacheRepo);
     echo json_encode($service->payload(), JSON_THROW_ON_ERROR);
 } catch (Throwable $e) {
     http_response_code(500);

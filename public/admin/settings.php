@@ -5,11 +5,14 @@ declare(strict_types=1);
 require_once dirname(__DIR__, 2) . '/src/bootstrap.php';
 
 use App\Core\Auth;
+use App\Core\CacheRepo;
 use App\Core\Config;
+use App\Core\Crypto;
 use App\Core\Database;
 use App\Core\InstallGate;
 use App\Core\IpAllowlist;
 use App\Core\SettingsRepo;
+use App\Services\HaloClient;
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/admin/settings.php', PHP_URL_PATH) ?: '/admin/settings.php';
 InstallGate::enforce($path);
@@ -134,19 +137,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $settings->set('status_waiting_on_customer', trim((string) ($_POST['status_waiting_on_customer'] ?? '')));
             $settings->set('status_customer_responded', trim((string) ($_POST['status_customer_responded'] ?? '')));
             $settings->set('status_open_or_closed_exclusions', trim((string) ($_POST['status_open_or_closed_exclusions'] ?? '')));
+            $settings->set('project_type_list', trim((string) ($_POST['project_type_list'] ?? 'project')));
+            $settings->set('sla_due_soon_minutes', (string) max(10, (int) ($_POST['sla_due_soon_minutes'] ?? 120)));
         }
 
         if ($postSection === 'halo') {
-            $settings->set('halo_api_base_url', trim((string) ($_POST['halo_api_base_url'] ?? '')));
-            $settings->set('halo_auth_base_url', trim((string) ($_POST['halo_auth_base_url'] ?? '')));
-            $settings->set('halo_tenant', trim((string) ($_POST['halo_tenant'] ?? '')));
+            $settings->set('halo_enabled', isset($_POST['halo_enabled']) ? '1' : '0');
+            $settings->set('halo_resource_base_url', trim((string) ($_POST['halo_resource_base_url'] ?? 'https://servicedesk.ilkleyitservices.co.uk/api')));
+            $settings->set('halo_auth_base_url', trim((string) ($_POST['halo_auth_base_url'] ?? 'https://servicedesk.ilkleyitservices.co.uk/auth')));
+            $settings->set('halo_tenant', trim((string) ($_POST['halo_tenant'] ?? 'ilkleyitservices')));
             $settings->set('halo_client_id', trim((string) ($_POST['halo_client_id'] ?? '')));
-            if (trim((string) ($_POST['halo_client_secret'] ?? '')) !== '') {
-                $settings->set('halo_client_secret', trim((string) ($_POST['halo_client_secret'] ?? '')));
+            $settings->set('halo_tickets_path', trim((string) ($_POST['halo_tickets_path'] ?? '/tickets')));
+
+            $newSecret = trim((string) ($_POST['halo_client_secret'] ?? ''));
+            if ($newSecret !== '') {
+                $settings->set('halo_client_secret_enc', Crypto::encryptString($newSecret));
+            }
+
+            $action = (string) ($_POST['halo_action'] ?? 'save');
+            if ($action === 'test') {
+                $haloClient = new HaloClient($settings, new CacheRepo($pdo));
+                $result = $haloClient->testConnection();
+                if ($result['ok']) {
+                    $success = $result['message'];
+                } else {
+                    $error = $result['message'];
+                }
             }
         }
 
-        $success = 'Settings saved.';
+        if ($success === '' && $error === '') {
+            $success = 'Settings saved.';
+        }
         $section = $postSection;
     } catch (Throwable $e) {
         $error = $e->getMessage();
@@ -171,7 +193,6 @@ function sectionLink(string $section, string $activeSection): string
 
 $rssFeedCount = listCount(val($settings, 'rss_feed_urls'));
 $rssEnabled = val($settings, 'rss_enabled', '0') === '1';
-
 $agentCount = listCount(val($settings, 'agent_names', ''));
 
 $thresholdKeys = [
@@ -189,7 +210,7 @@ foreach ($thresholdKeys as $thresholdKey) {
     }
 }
 
-$haloConfigured = trim(val($settings, 'halo_client_id', '')) !== '' && trim(val($settings, 'halo_client_secret', '')) !== '';
+$haloConfigured = trim(val($settings, 'halo_client_id', '')) !== '' && trim(val($settings, 'halo_client_secret_enc', '')) !== '';
 ?><!doctype html>
 <html><head><meta charset="utf-8"><title>Admin Settings</title><link rel="stylesheet" href="/assets/dashboard.css"></head>
 <body>
@@ -274,27 +295,44 @@ $haloConfigured = trim(val($settings, 'halo_client_id', '')) !== '' && trim(val(
                     <label>Open/Closed exclusion statuses (comma or newline separated)
                         <textarea name="status_open_or_closed_exclusions" rows="4"><?= htmlspecialchars(val($settings, 'status_open_or_closed_exclusions'), ENT_QUOTES, 'UTF-8') ?></textarea>
                     </label>
+                    <label>Project type list (comma/newline, default includes project)
+                        <textarea name="project_type_list" rows="3"><?= htmlspecialchars(val($settings, 'project_type_list', 'project'), ENT_QUOTES, 'UTF-8') ?></textarea>
+                    </label>
+                    <label>SLA due soon minutes
+                        <input type="number" min="10" name="sla_due_soon_minutes" value="<?= htmlspecialchars(val($settings, 'sla_due_soon_minutes', '120'), ENT_QUOTES, 'UTF-8') ?>">
+                    </label>
                 <?php elseif ($section === 'halo'): ?>
                     <h2>Halo</h2>
-                    <p class="muted">Not configured in Phase 2.x. These values are placeholders for Phase 3 integration.</p>
-                    <label>Halo API base URL
-                        <input type="text" name="halo_api_base_url" value="<?= htmlspecialchars(val($settings, 'halo_api_base_url'), ENT_QUOTES, 'UTF-8') ?>" placeholder="https://servicedesk.example.co.uk/api">
+                    <label><input type="checkbox" name="halo_enabled" value="1" <?= val($settings, 'halo_enabled', '0') === '1' ? 'checked' : '' ?>> Enable Halo integration</label>
+                    <label>Halo resource base URL
+                        <input type="text" name="halo_resource_base_url" value="<?= htmlspecialchars(val($settings, 'halo_resource_base_url', 'https://servicedesk.ilkleyitservices.co.uk/api'), ENT_QUOTES, 'UTF-8') ?>">
                     </label>
-                    <label>Halo Auth base URL
-                        <input type="text" name="halo_auth_base_url" value="<?= htmlspecialchars(val($settings, 'halo_auth_base_url'), ENT_QUOTES, 'UTF-8') ?>" placeholder="https://servicedesk.example.co.uk/auth">
+                    <label>Halo auth base URL
+                        <input type="text" name="halo_auth_base_url" value="<?= htmlspecialchars(val($settings, 'halo_auth_base_url', 'https://servicedesk.ilkleyitservices.co.uk/auth'), ENT_QUOTES, 'UTF-8') ?>">
                     </label>
-                    <label>Halo Tenant
-                        <input type="text" name="halo_tenant" value="<?= htmlspecialchars(val($settings, 'halo_tenant'), ENT_QUOTES, 'UTF-8') ?>">
+                    <label>Halo tenant
+                        <input type="text" name="halo_tenant" value="<?= htmlspecialchars(val($settings, 'halo_tenant', 'ilkleyitservices'), ENT_QUOTES, 'UTF-8') ?>">
                     </label>
-                    <label>Client ID
+                    <label>Halo client ID
                         <input type="text" name="halo_client_id" value="<?= htmlspecialchars(val($settings, 'halo_client_id'), ENT_QUOTES, 'UTF-8') ?>">
                     </label>
-                    <label>Client Secret (leave blank to keep existing)
+                    <label>Halo client secret (stored encrypted; leave blank to keep current)
                         <input type="password" name="halo_client_secret" value="">
                     </label>
+                    <label>Tickets endpoint path (use Halo tester to confirm)
+                        <input type="text" name="halo_tickets_path" value="<?= htmlspecialchars(val($settings, 'halo_tickets_path', '/tickets'), ENT_QUOTES, 'UTF-8') ?>">
+                    </label>
+                    <p class="muted">Use Halo tester to confirm correct endpoint/filter syntax before relying on production metrics.</p>
+                    <p><a href="/admin/halo_tester.php">Open Halo API tester</a></p>
+                    <div class="button-row">
+                        <button type="submit" name="halo_action" value="save">Save Halo settings</button>
+                        <button type="submit" name="halo_action" value="test">Test Halo connection</button>
+                    </div>
                 <?php endif; ?>
 
-                <button type="submit">Save <?= htmlspecialchars(ucfirst($section), ENT_QUOTES, 'UTF-8') ?></button>
+                <?php if ($section !== 'halo'): ?>
+                    <button type="submit">Save <?= htmlspecialchars(ucfirst($section), ENT_QUOTES, 'UTF-8') ?></button>
+                <?php endif; ?>
             </form>
             <p><a href="/admin/logout.php">Logout</a></p>
         </section>
