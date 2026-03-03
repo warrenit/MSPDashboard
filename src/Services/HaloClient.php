@@ -34,14 +34,26 @@ final class HaloClient
     public function testConnection(): array
     {
         try {
-            $token = $this->getAccessToken();
+            $tokenResult = $this->getAccessTokenResult();
+            if (!$tokenResult['ok']) {
+                return [
+                    'ok' => false,
+                    'message' => 'Token request failed: HTTP ' . (int) $tokenResult['http_status'] . ' - ' . $this->truncate($tokenResult['response_preview'] ?? ''),
+                    'http_status' => (int) $tokenResult['http_status'],
+                ];
+            }
+
             $path = (string) $this->settings->get('halo_test_path', '/tickets');
-            $result = $this->request('GET', $path, ['page_size' => 1, 'page_no' => 1], $token);
+            $result = $this->request('GET', $path, ['page_size' => 1, 'page_no' => 1], (string) $tokenResult['access_token']);
             if ($result['ok']) {
                 return ['ok' => true, 'message' => 'Connected to Halo successfully.', 'http_status' => $result['status']];
             }
 
-            return ['ok' => false, 'message' => 'Connection failed: ' . $this->safeError($result['error']), 'http_status' => $result['status']];
+            return [
+                'ok' => false,
+                'message' => 'API test failed: HTTP ' . (int) $result['status'] . ' - ' . $this->truncate((string) ($result['body'] ?? '')),
+                'http_status' => (int) $result['status'],
+            ];
         } catch (\Throwable $e) {
             return ['ok' => false, 'message' => 'Connection failed: ' . $this->safeError($e->getMessage()), 'http_status' => 0];
         }
@@ -91,55 +103,53 @@ final class HaloClient
 
     private function getAccessToken(): string
     {
-        $cached = $this->cacheRepo->get('halo_token');
-        if ($cached !== null && isset($cached['payload']['access_token'], $cached['payload']['expires_at'])) {
-            $expiresAt = strtotime((string) $cached['payload']['expires_at']);
-            if ($expiresAt !== false && $expiresAt > time() + 60) {
-                return (string) $cached['payload']['access_token'];
-            }
+        $result = $this->getAccessTokenResult();
+        if (!$result['ok']) {
+            throw new \RuntimeException('Token request failed: HTTP ' . (int) $result['http_status'] . ' - ' . $this->truncate((string) ($result['response_preview'] ?? '')));
         }
 
-        $payload = [
-            'grant_type' => 'client_credentials',
-            'client_id' => $this->clientId(),
-            'client_secret' => $this->clientSecret(),
-        ];
-
-        $tenant = trim((string) $this->settings->get('halo_tenant', 'ilkleyitservices'));
-        if ($tenant !== '') {
-            $payload['tenant'] = $tenant;
-        }
-
-        $scope = trim((string) $this->settings->get('halo_scope', ''));
-        if ($scope !== '') {
-            $payload['scope'] = $scope;
-        }
-
-        $tokenEndpoints = ['/token', '/connect/token'];
-        $lastError = 'Token request failed';
-        foreach ($tokenEndpoints as $path) {
-            $result = $this->requestToken($path, $payload);
-            if ($result['ok']) {
-                $token = (string) $result['json']['access_token'];
-                $expiresIn = max(300, (int) ($result['json']['expires_in'] ?? 3600));
-                $expiresAt = gmdate('c', time() + $expiresIn);
-
-                $this->cacheRepo->upsert('halo_token', [
-                    'access_token' => $token,
-                    'expires_at' => $expiresAt,
-                ], 'ok', null);
-
-                return $token;
-            }
-            $lastError = (string) $result['error'];
-        }
-
-        throw new \RuntimeException($this->safeError($lastError));
+        return (string) $result['access_token'];
     }
 
-    private function requestToken(string $path, array $form): array
+    private function getAccessTokenResult(): array
+    {
+        $tokenCacheKey = hash('sha256', $this->authBaseUrl() . '|' . $this->clientId());
+        $cached = $this->cacheRepo->get('halo_token');
+        if ($cached !== null && isset($cached['payload']['access_token'], $cached['payload']['expires_at'], $cached['payload']['token_cache_key'])) {
+            $expiresAt = strtotime((string) $cached['payload']['expires_at']);
+            if ((string) $cached['payload']['token_cache_key'] === $tokenCacheKey && $expiresAt !== false && $expiresAt > time() + 60) {
+                return ['ok' => true, 'access_token' => (string) $cached['payload']['access_token'], 'http_status' => 200, 'response_preview' => ''];
+            }
+        }
+
+        $result = $this->requestToken('/token');
+        if (!$result['ok']) {
+            return [
+                'ok' => false,
+                'access_token' => '',
+                'http_status' => (int) $result['status'],
+                'response_preview' => $this->truncate((string) ($result['body'] ?? '')),
+            ];
+        }
+
+        $token = (string) $result['json']['access_token'];
+        $expiresIn = max(300, (int) ($result['json']['expires_in'] ?? 3600));
+        $expiresAt = gmdate('c', time() + $expiresIn);
+
+        $this->cacheRepo->upsert('halo_token', [
+            'access_token' => $token,
+            'expires_at' => $expiresAt,
+            'token_cache_key' => $tokenCacheKey,
+        ], 'ok', null);
+
+        return ['ok' => true, 'access_token' => $token, 'http_status' => (int) $result['status'], 'response_preview' => ''];
+    }
+
+    private function requestToken(string $path): array
     {
         $url = rtrim($this->authBaseUrl(), '/') . '/' . ltrim($path, '/');
+        $basic = base64_encode($this->clientId() . ':' . $this->clientSecret());
+
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
@@ -149,8 +159,15 @@ final class HaloClient
             CURLOPT_TIMEOUT => 10,
             CURLOPT_USERAGENT => 'MSPDashboard-Halo/1.0',
             CURLOPT_POST => true,
-            CURLOPT_POSTFIELDS => http_build_query($form),
-            CURLOPT_HTTPHEADER => ['Content-Type: application/x-www-form-urlencoded'],
+            CURLOPT_POSTFIELDS => http_build_query([
+                'grant_type' => 'client_credentials',
+                'scope' => 'all',
+            ]),
+            CURLOPT_HTTPHEADER => [
+                'Accept: application/json',
+                'Content-Type: application/x-www-form-urlencoded',
+                'Authorization: Basic ' . $basic,
+            ],
             CURLOPT_SSL_VERIFYPEER => true,
             CURLOPT_SSL_VERIFYHOST => 2,
         ]);
@@ -159,7 +176,7 @@ final class HaloClient
         if (!is_string($body)) {
             $error = curl_error($ch) ?: 'Token request failed';
             curl_close($ch);
-            return ['ok' => false, 'status' => 0, 'json' => null, 'error' => $error];
+            return ['ok' => false, 'status' => 0, 'json' => null, 'body' => $error, 'error' => $error];
         }
 
         $status = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -167,10 +184,10 @@ final class HaloClient
 
         $json = json_decode($body, true);
         if ($status >= 200 && $status < 300 && is_array($json) && isset($json['access_token'])) {
-            return ['ok' => true, 'status' => $status, 'json' => $json, 'error' => null];
+            return ['ok' => true, 'status' => $status, 'json' => $json, 'body' => $body, 'error' => null];
         }
 
-        return ['ok' => false, 'status' => $status, 'json' => is_array($json) ? $json : null, 'error' => 'Token HTTP ' . $status];
+        return ['ok' => false, 'status' => $status, 'json' => is_array($json) ? $json : null, 'body' => $body, 'error' => 'Token HTTP ' . $status];
     }
 
     private function fetchTickets(string $token): array
@@ -621,6 +638,17 @@ final class HaloClient
     {
         $msg = preg_replace('/[^a-zA-Z0-9 .:_\-\/]/', '', trim((string) $message));
         return $msg !== '' ? $msg : 'Unavailable';
+    }
+
+    private function truncate(string $value, int $max = 500): string
+    {
+        $sanitized = preg_replace('/[\x00-\x1F\x7F]/u', ' ', $value);
+        $clean = trim((string) $sanitized);
+        if ($clean === '') {
+            return 'No response body';
+        }
+
+        return mb_substr($clean, 0, $max);
     }
 
     private function clientId(): string
